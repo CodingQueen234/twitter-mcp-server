@@ -141,6 +141,55 @@ class TwitterMCPServer:
                     }
                 ),
                 Tool(
+                    name="get_tweet",
+                    description="Get a tweet by ID",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "tweet_id": {
+                                "type": "string",
+                                "description": "The ID of the tweet to retrieve"
+                            },
+                            "ct0": {
+                                "type": "string",
+                                "description": "Twitter ct0 cookie (required)"
+                            },
+                            "auth_token": {
+                                "type": "string",
+                                "description": "Twitter auth_token cookie (required)"
+                            }
+                        },
+                        "required": ["tweet_id", "ct0", "auth_token"]
+                    }
+                ),
+                Tool(
+                    name="get_tweets_by_ids",
+                    description="Get multiple tweets by ID",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "tweet_ids": {
+                                "type": "array",
+                                "description": "The IDs of the tweets to retrieve",
+                                "items": {
+                                    "type": "string"
+                                },
+                                "minItems": 1,
+                                "maxItems": 100
+                            },
+                            "ct0": {
+                                "type": "string",
+                                "description": "Twitter ct0 cookie (required)"
+                            },
+                            "auth_token": {
+                                "type": "string",
+                                "description": "Twitter auth_token cookie (required)"
+                            }
+                        },
+                        "required": ["tweet_ids", "ct0", "auth_token"]
+                    }
+                ),
+                Tool(
                     name="get_user_tweets",
                     description="Get recent tweets and/or replies from a specific user by username",
                     inputSchema={
@@ -555,6 +604,14 @@ class TwitterMCPServer:
                     action = "Reply posted" if reply_to else "Tweet posted"
                     return [types.TextContent(type="text", text=f"{action} successfully: {json.dumps(result, indent=2)}")]
                 
+                elif name == "get_tweet":
+                    result = await self._get_tweet(client, arguments["tweet_id"])
+                    return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
+                elif name == "get_tweets_by_ids":
+                    result = await self._get_tweets_by_ids(client, arguments["tweet_ids"])
+                    return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
                 elif name == "get_user_tweets":
                     count = arguments.get("count", 20)
                     include_replies = arguments.get("include_replies", False)
@@ -663,6 +720,47 @@ class TwitterMCPServer:
         self.authenticated_clients[cache_key] = client
         return client
 
+    def _safe_attr(self, obj: Any, name: str, default: Any = None) -> Any:
+        try:
+            return getattr(obj, name)
+        except Exception:
+            return default
+
+    def _format_tweet(self, tweet: Any) -> Optional[Dict[str, Any]]:
+        """Convert a Twikit Tweet object to JSON-serializable data."""
+        if tweet is None:
+            return None
+
+        tweet_id = self._safe_attr(tweet, "id")
+        text = self._safe_attr(tweet, "text")
+        if text is None:
+            return {
+                "id": tweet_id,
+                "unavailable": True,
+                "type": tweet.__class__.__name__
+            }
+
+        user = self._safe_attr(tweet, "user")
+        created_at = self._safe_attr(tweet, "created_at")
+        return {
+            "id": tweet_id,
+            "text": text,
+            "full_text": self._safe_attr(tweet, "full_text", text),
+            "author": self._safe_attr(user, "screen_name"),
+            "author_name": self._safe_attr(user, "name"),
+            "author_id": self._safe_attr(user, "id"),
+            "created_at": str(created_at) if created_at is not None else None,
+            "like_count": self._safe_attr(tweet, "favorite_count"),
+            "retweet_count": self._safe_attr(tweet, "retweet_count"),
+            "reply_count": self._safe_attr(tweet, "reply_count"),
+            "quote_count": self._safe_attr(tweet, "quote_count"),
+            "bookmark_count": self._safe_attr(tweet, "bookmark_count"),
+            "view_count": self._safe_attr(tweet, "view_count"),
+            "in_reply_to": self._safe_attr(tweet, "in_reply_to"),
+            "lang": self._safe_attr(tweet, "lang"),
+            "possibly_sensitive": self._safe_attr(tweet, "possibly_sensitive")
+        }
+
     async def _test_authentication(self, client: Client) -> Dict[str, Any]:
         """Test authentication and return user info"""
         # Get user ID first, then use it to get user details
@@ -691,6 +789,20 @@ class TwitterMCPServer:
             "author": tweet.user.screen_name,
             "in_reply_to": reply_to_tweet_id
         }
+
+    async def _get_tweet(self, client: Client, tweet_id: str) -> Optional[Dict[str, Any]]:
+        """Get a tweet by ID"""
+        tweet = await client.get_tweet_by_id(tweet_id)
+        return self._format_tweet(tweet)
+
+    async def _get_tweets_by_ids(self, client: Client, tweet_ids: List[str]) -> List[Dict[str, Any]]:
+        """Get multiple tweets by IDs"""
+        tweets = await client.get_tweets_by_ids(tweet_ids)
+        return [
+            formatted
+            for formatted in (self._format_tweet(tweet) for tweet in tweets)
+            if formatted is not None
+        ]
 
     async def _get_user_info(self, client: Client, username: str) -> Dict[str, Any]:
         """Get user information"""
