@@ -275,6 +275,64 @@ class TwitterMCPServer:
                     }
                 ),
                 Tool(
+                    name="get_user_followers",
+                    description="Get followers for a specific user by username",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "username": {
+                                "type": "string",
+                                "description": "The username (without @) to get followers for"
+                            },
+                            "count": {
+                                "type": "integer",
+                                "description": "Number of followers to return (default: 20)",
+                                "default": 20,
+                                "minimum": 1,
+                                "maximum": 100
+                            },
+                            "ct0": {
+                                "type": "string",
+                                "description": "Twitter ct0 cookie (required)"
+                            },
+                            "auth_token": {
+                                "type": "string",
+                                "description": "Twitter auth_token cookie (required)"
+                            }
+                        },
+                        "required": ["username", "ct0", "auth_token"]
+                    }
+                ),
+                Tool(
+                    name="get_user_following",
+                    description="Get users followed by a specific user by username",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "username": {
+                                "type": "string",
+                                "description": "The username (without @) to get following for"
+                            },
+                            "count": {
+                                "type": "integer",
+                                "description": "Number of following users to return (default: 20)",
+                                "default": 20,
+                                "minimum": 1,
+                                "maximum": 100
+                            },
+                            "ct0": {
+                                "type": "string",
+                                "description": "Twitter ct0 cookie (required)"
+                            },
+                            "auth_token": {
+                                "type": "string",
+                                "description": "Twitter auth_token cookie (required)"
+                            }
+                        },
+                        "required": ["username", "ct0", "auth_token"]
+                    }
+                ),
+                Tool(
                     name="search_tweets",
                     description="Search for tweets with a specific query",
                     inputSchema={
@@ -346,6 +404,66 @@ class TwitterMCPServer:
                                 "default": 20,
                                 "minimum": 1,
                                 "maximum": 100
+                            },
+                            "ct0": {
+                                "type": "string",
+                                "description": "Twitter ct0 cookie (required)"
+                            },
+                            "auth_token": {
+                                "type": "string",
+                                "description": "Twitter auth_token cookie (required)"
+                            }
+                        },
+                        "required": ["ct0", "auth_token"]
+                    }
+                ),
+                Tool(
+                    name="get_notifications",
+                    description="Get notifications for the authenticated user",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "notification_type": {
+                                "type": "string",
+                                "description": "Type of notifications to retrieve",
+                                "enum": ["All", "Verified", "Mentions"],
+                                "default": "All"
+                            },
+                            "count": {
+                                "type": "integer",
+                                "description": "Number of notifications to return (default: 40)",
+                                "default": 40,
+                                "minimum": 1,
+                                "maximum": 100
+                            },
+                            "ct0": {
+                                "type": "string",
+                                "description": "Twitter ct0 cookie (required)"
+                            },
+                            "auth_token": {
+                                "type": "string",
+                                "description": "Twitter auth_token cookie (required)"
+                            }
+                        },
+                        "required": ["ct0", "auth_token"]
+                    }
+                ),
+                Tool(
+                    name="get_bookmarks",
+                    description="Get bookmarked tweets for the authenticated user",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "count": {
+                                "type": "integer",
+                                "description": "Number of bookmarks to return (default: 20)",
+                                "default": 20,
+                                "minimum": 1,
+                                "maximum": 100
+                            },
+                            "folder_id": {
+                                "type": "string",
+                                "description": "Optional bookmark folder ID to retrieve bookmarks from"
                             },
                             "ct0": {
                                 "type": "string",
@@ -665,6 +783,46 @@ class TwitterMCPServer:
                         },
                         "required": ["ct0", "auth_token"]
                     }
+                ),
+                Tool(
+                    name="get_available_locations",
+                    description="Get locations where place trends are available",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "ct0": {
+                                "type": "string",
+                                "description": "Twitter ct0 cookie (required)"
+                            },
+                            "auth_token": {
+                                "type": "string",
+                                "description": "Twitter auth_token cookie (required)"
+                            }
+                        },
+                        "required": ["ct0", "auth_token"]
+                    }
+                ),
+                Tool(
+                    name="get_place_trends",
+                    description="Get trending topics for a specific WOEID location",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "woeid": {
+                                "type": "integer",
+                                "description": "The WOEID of the location"
+                            },
+                            "ct0": {
+                                "type": "string",
+                                "description": "Twitter ct0 cookie (required)"
+                            },
+                            "auth_token": {
+                                "type": "string",
+                                "description": "Twitter auth_token cookie (required)"
+                            }
+                        },
+                        "required": ["woeid", "ct0", "auth_token"]
+                    }
                 )
             ]
 
@@ -714,6 +872,16 @@ class TwitterMCPServer:
                     result = await self._search_users(client, arguments["query"], count)
                     return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
 
+                elif name == "get_user_followers":
+                    count = arguments.get("count", 20)
+                    result = await self._get_user_followers(client, arguments["username"], count)
+                    return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
+                elif name == "get_user_following":
+                    count = arguments.get("count", 20)
+                    result = await self._get_user_following(client, arguments["username"], count)
+                    return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
                 elif name == "search_tweets":
                     count = arguments.get("count", 20)
                     product = arguments.get("product", "Latest")
@@ -734,6 +902,18 @@ class TwitterMCPServer:
                     result = await self._get_latest_timeline(client, count)
                     return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
                 
+                elif name == "get_notifications":
+                    notification_type = arguments.get("notification_type", "All")
+                    count = arguments.get("count", 40)
+                    result = await self._get_notifications(client, notification_type, count)
+                    return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
+                elif name == "get_bookmarks":
+                    count = arguments.get("count", 20)
+                    folder_id = arguments.get("folder_id")
+                    result = await self._get_bookmarks(client, count, folder_id)
+                    return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
                 elif name == "like_tweet":
                     result = await self._like_tweet(client, arguments["tweet_id"])
                     return [types.TextContent(type="text", text=f"Tweet liked successfully: {json.dumps(result, indent=2)}")]
@@ -784,6 +964,14 @@ class TwitterMCPServer:
                     result = await self._get_trends(client, category, count)
                     return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
                 
+                elif name == "get_available_locations":
+                    result = await self._get_available_locations(client)
+                    return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
+                elif name == "get_place_trends":
+                    result = await self._get_place_trends(client, arguments["woeid"])
+                    return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
                 else:
                     raise ValueError(f"Unknown tool: {name}")
 
@@ -886,6 +1074,60 @@ class TwitterMCPServer:
             "created_at": str(created_at) if created_at is not None else None
         }
 
+    def _format_notification(self, notification: Any) -> Optional[Dict[str, Any]]:
+        """Convert a Twikit Notification object to JSON-serializable data."""
+        if notification is None:
+            return None
+
+        notification_id = self._safe_attr(notification, "id")
+        if notification_id is None:
+            return None
+
+        return {
+            "id": notification_id,
+            "timestamp_ms": self._safe_attr(notification, "timestamp_ms"),
+            "message": self._safe_attr(notification, "message"),
+            "icon": self._safe_attr(notification, "icon"),
+            "tweet": self._format_tweet(self._safe_attr(notification, "tweet")),
+            "from_user": self._format_user(self._safe_attr(notification, "from_user"))
+        }
+
+    def _format_location(self, location: Any) -> Optional[Dict[str, Any]]:
+        """Convert a Twikit Location object to JSON-serializable data."""
+        if location is None:
+            return None
+
+        woeid = self._safe_attr(location, "woeid")
+        if woeid is None:
+            return None
+
+        return {
+            "woeid": woeid,
+            "name": self._safe_attr(location, "name"),
+            "country": self._safe_attr(location, "country"),
+            "country_code": self._safe_attr(location, "country_code"),
+            "parentid": self._safe_attr(location, "parentid"),
+            "place_type": self._safe_attr(location, "placeType"),
+            "url": self._safe_attr(location, "url")
+        }
+
+    def _format_place_trend(self, trend: Any) -> Optional[Dict[str, Any]]:
+        """Convert a Twikit PlaceTrend object to JSON-serializable data."""
+        if trend is None:
+            return None
+
+        name = self._safe_attr(trend, "name")
+        if name is None:
+            return None
+
+        return {
+            "name": name,
+            "url": self._safe_attr(trend, "url"),
+            "query": self._safe_attr(trend, "query"),
+            "tweet_volume": self._safe_attr(trend, "tweet_volume"),
+            "promoted_content": self._safe_attr(trend, "promoted_content")
+        }
+
     async def _test_authentication(self, client: Client) -> Dict[str, Any]:
         """Test authentication and return user info"""
         # Get user ID first, then use it to get user details
@@ -940,6 +1182,26 @@ class TwitterMCPServer:
         return [
             formatted
             for formatted in (self._format_user(user) for user in users)
+            if formatted is not None
+        ]
+
+    async def _get_user_followers(self, client: Client, username: str, count: int = 20) -> List[Dict[str, Any]]:
+        """Get followers for a specific user"""
+        user = await client.get_user_by_screen_name(username)
+        followers = await client.get_user_followers(user.id, count=count)
+        return [
+            formatted
+            for formatted in (self._format_user(follower) for follower in followers)
+            if formatted is not None
+        ]
+
+    async def _get_user_following(self, client: Client, username: str, count: int = 20) -> List[Dict[str, Any]]:
+        """Get users followed by a specific user"""
+        user = await client.get_user_by_screen_name(username)
+        following = await client.get_user_following(user.id, count=count)
+        return [
+            formatted
+            for formatted in (self._format_user(followed_user) for followed_user in following)
             if formatted is not None
         ]
 
@@ -1041,6 +1303,27 @@ class TwitterMCPServer:
                 "reply_count": tweet.reply_count
             }
             for tweet in tweets
+        ]
+
+    async def _get_notifications(self, client: Client, notification_type: str = "All", count: int = 40) -> List[Dict[str, Any]]:
+        """Get notifications for the authenticated user"""
+        if notification_type not in ("All", "Verified", "Mentions"):
+            notification_type = "All"
+
+        notifications = await client.get_notifications(notification_type, count=count)
+        return [
+            formatted
+            for formatted in (self._format_notification(notification) for notification in notifications)
+            if formatted is not None
+        ]
+
+    async def _get_bookmarks(self, client: Client, count: int = 20, folder_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get bookmarked tweets for the authenticated user"""
+        tweets = await client.get_bookmarks(count=count, folder_id=folder_id)
+        return [
+            formatted
+            for formatted in (self._format_tweet(tweet) for tweet in tweets)
+            if formatted is not None
         ]
 
     async def _send_dm(self, client: Client, recipient_username: str, text: str) -> Dict[str, Any]:
@@ -1165,6 +1448,30 @@ class TwitterMCPServer:
             }
             for trend in trends
         ]
+
+    async def _get_available_locations(self, client: Client) -> List[Dict[str, Any]]:
+        """Get locations where place trends are available"""
+        locations = await client.get_available_locations()
+        return [
+            formatted
+            for formatted in (self._format_location(location) for location in locations)
+            if formatted is not None
+        ]
+
+    async def _get_place_trends(self, client: Client, woeid: int) -> Dict[str, Any]:
+        """Get trending topics for a specific WOEID location"""
+        place_trends = await client.get_place_trends(woeid)
+        trends = place_trends.get("trends", [])
+        return {
+            "as_of": place_trends.get("as_of"),
+            "created_at": place_trends.get("created_at"),
+            "locations": place_trends.get("locations"),
+            "trends": [
+                formatted
+                for formatted in (self._format_place_trend(trend) for trend in trends)
+                if formatted is not None
+            ]
+        }
 
     async def run(self):
         """Run the MCP server"""
