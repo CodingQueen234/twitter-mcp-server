@@ -246,6 +246,35 @@ class TwitterMCPServer:
                     }
                 ),
                 Tool(
+                    name="search_users",
+                    description="Search for Twitter users",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "The user search query"
+                            },
+                            "count": {
+                                "type": "integer",
+                                "description": "Number of users to return (default: 20)",
+                                "default": 20,
+                                "minimum": 1,
+                                "maximum": 100
+                            },
+                            "ct0": {
+                                "type": "string",
+                                "description": "Twitter ct0 cookie (required)"
+                            },
+                            "auth_token": {
+                                "type": "string",
+                                "description": "Twitter auth_token cookie (required)"
+                            }
+                        },
+                        "required": ["query", "ct0", "auth_token"]
+                    }
+                ),
+                Tool(
                     name="search_tweets",
                     description="Search for tweets with a specific query",
                     inputSchema={
@@ -361,6 +390,64 @@ class TwitterMCPServer:
                             "tweet_id": {
                                 "type": "string",
                                 "description": "The ID of the tweet to retweet"
+                            },
+                            "ct0": {
+                                "type": "string",
+                                "description": "Twitter ct0 cookie (required)"
+                            },
+                            "auth_token": {
+                                "type": "string",
+                                "description": "Twitter auth_token cookie (required)"
+                            }
+                        },
+                        "required": ["tweet_id", "ct0", "auth_token"]
+                    }
+                ),
+                Tool(
+                    name="get_retweeters",
+                    description="Get users who retweeted a tweet",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "tweet_id": {
+                                "type": "string",
+                                "description": "The ID of the tweet"
+                            },
+                            "count": {
+                                "type": "integer",
+                                "description": "Number of users to return (default: 40)",
+                                "default": 40,
+                                "minimum": 1,
+                                "maximum": 100
+                            },
+                            "ct0": {
+                                "type": "string",
+                                "description": "Twitter ct0 cookie (required)"
+                            },
+                            "auth_token": {
+                                "type": "string",
+                                "description": "Twitter auth_token cookie (required)"
+                            }
+                        },
+                        "required": ["tweet_id", "ct0", "auth_token"]
+                    }
+                ),
+                Tool(
+                    name="get_favoriters",
+                    description="Get users who liked a tweet",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "tweet_id": {
+                                "type": "string",
+                                "description": "The ID of the tweet"
+                            },
+                            "count": {
+                                "type": "integer",
+                                "description": "Number of users to return (default: 40)",
+                                "default": 40,
+                                "minimum": 1,
+                                "maximum": 100
                             },
                             "ct0": {
                                 "type": "string",
@@ -622,6 +709,11 @@ class TwitterMCPServer:
                     result = await self._get_user_info(client, arguments["username"])
                     return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
                 
+                elif name == "search_users":
+                    count = arguments.get("count", 20)
+                    result = await self._search_users(client, arguments["query"], count)
+                    return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
                 elif name == "search_tweets":
                     count = arguments.get("count", 20)
                     product = arguments.get("product", "Latest")
@@ -650,6 +742,16 @@ class TwitterMCPServer:
                     result = await self._retweet(client, arguments["tweet_id"])
                     return [types.TextContent(type="text", text=f"Tweet retweeted successfully: {json.dumps(result, indent=2)}")]
                 
+                elif name == "get_retweeters":
+                    count = arguments.get("count", 40)
+                    result = await self._get_retweeters(client, arguments["tweet_id"], count)
+                    return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
+                elif name == "get_favoriters":
+                    count = arguments.get("count", 40)
+                    result = await self._get_favoriters(client, arguments["tweet_id"], count)
+                    return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
                 elif name == "send_dm":
                     result = await self._send_dm(client, arguments["recipient_username"], arguments["text"])
                     return [types.TextContent(type="text", text=f"DM sent successfully: {json.dumps(result, indent=2)}")]
@@ -761,6 +863,29 @@ class TwitterMCPServer:
             "possibly_sensitive": self._safe_attr(tweet, "possibly_sensitive")
         }
 
+    def _format_user(self, user: Any) -> Optional[Dict[str, Any]]:
+        """Convert a Twikit User object to JSON-serializable data."""
+        if user is None:
+            return None
+
+        user_id = self._safe_attr(user, "id")
+        screen_name = self._safe_attr(user, "screen_name")
+        if user_id is None and screen_name is None:
+            return None
+
+        created_at = self._safe_attr(user, "created_at")
+        return {
+            "id": user_id,
+            "username": screen_name,
+            "name": self._safe_attr(user, "name"),
+            "description": self._safe_attr(user, "description"),
+            "followers_count": self._safe_attr(user, "followers_count"),
+            "following_count": self._safe_attr(user, "following_count"),
+            "tweet_count": self._safe_attr(user, "statuses_count"),
+            "verified": self._safe_attr(user, "verified"),
+            "created_at": str(created_at) if created_at is not None else None
+        }
+
     async def _test_authentication(self, client: Client) -> Dict[str, Any]:
         """Test authentication and return user info"""
         # Get user ID first, then use it to get user details
@@ -807,17 +932,16 @@ class TwitterMCPServer:
     async def _get_user_info(self, client: Client, username: str) -> Dict[str, Any]:
         """Get user information"""
         user = await client.get_user_by_screen_name(username)
-        return {
-            "id": user.id,
-            "username": user.screen_name,
-            "name": user.name,
-            "description": user.description,
-            "followers_count": user.followers_count,
-            "following_count": user.following_count,
-            "tweet_count": user.statuses_count,
-            "verified": user.verified,
-            "created_at": str(user.created_at)
-        }
+        return self._format_user(user)
+
+    async def _search_users(self, client: Client, query: str, count: int = 20) -> List[Dict[str, Any]]:
+        """Search for users"""
+        users = await client.search_user(query, count=count)
+        return [
+            formatted
+            for formatted in (self._format_user(user) for user in users)
+            if formatted is not None
+        ]
 
     async def _search_tweets(self, client: Client, query: str, count: int = 20, product: str = "Latest") -> List[Dict[str, Any]]:
         """Search for tweets"""
@@ -882,6 +1006,24 @@ class TwitterMCPServer:
         """Retweet a tweet"""
         result = await client.retweet(tweet_id)
         return {"success": True, "tweet_id": tweet_id}
+
+    async def _get_retweeters(self, client: Client, tweet_id: str, count: int = 40) -> List[Dict[str, Any]]:
+        """Get users who retweeted a tweet"""
+        users = await client.get_retweeters(tweet_id, count=count)
+        return [
+            formatted
+            for formatted in (self._format_user(user) for user in users)
+            if formatted is not None
+        ]
+
+    async def _get_favoriters(self, client: Client, tweet_id: str, count: int = 40) -> List[Dict[str, Any]]:
+        """Get users who liked a tweet"""
+        users = await client.get_favoriters(tweet_id, count=count)
+        return [
+            formatted
+            for formatted in (self._format_user(user) for user in users)
+            if formatted is not None
+        ]
 
     async def _get_latest_timeline(self, client: Client, count: int = 20) -> List[Dict[str, Any]]:
         """Get latest timeline tweets"""
