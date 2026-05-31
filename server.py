@@ -124,6 +124,10 @@ class TwitterMCPServer:
                                 "description": "The text content of the tweet",
                                 "maxLength": 280
                             },
+                            "reply_to_tweet_id": {
+                                "type": "string",
+                                "description": "The ID of the tweet to reply to. If provided, this tweet becomes a reply instead of a new tweet."
+                            },
                             "ct0": {
                                 "type": "string",
                                 "description": "Twitter ct0 cookie (required)"
@@ -134,6 +138,40 @@ class TwitterMCPServer:
                             }
                         },
                         "required": ["text", "ct0", "auth_token"]
+                    }
+                ),
+                Tool(
+                    name="get_user_tweets",
+                    description="Get recent tweets and/or replies from a specific user by username",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "username": {
+                                "type": "string",
+                                "description": "The username (without @) to get tweets from"
+                            },
+                            "count": {
+                                "type": "integer",
+                                "description": "Number of tweets to return (default: 20)",
+                                "default": 20,
+                                "minimum": 1,
+                                "maximum": 100
+                            },
+                            "include_replies": {
+                                "type": "boolean",
+                                "description": "If true, fetch tweets and replies. If false or omitted, fetch regular tweets only.",
+                                "default": False
+                            },
+                            "ct0": {
+                                "type": "string",
+                                "description": "Twitter ct0 cookie (required)"
+                            },
+                            "auth_token": {
+                                "type": "string",
+                                "description": "Twitter auth_token cookie (required)"
+                            }
+                        },
+                        "required": ["username", "ct0", "auth_token"]
                     }
                 ),
                 Tool(
@@ -413,6 +451,28 @@ class TwitterMCPServer:
                     }
                 ),
                 Tool(
+                    name="delete_tweet",
+                    description="Delete a tweet by its ID",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "tweet_id": {
+                                "type": "string",
+                                "description": "The ID of the tweet to delete"
+                            },
+                            "ct0": {
+                                "type": "string",
+                                "description": "Twitter ct0 cookie (required)"
+                            },
+                            "auth_token": {
+                                "type": "string",
+                                "description": "Twitter auth_token cookie (required)"
+                            }
+                        },
+                        "required": ["tweet_id", "ct0", "auth_token"]
+                    }
+                ),
+                Tool(
                     name="get_tweet_replies",
                     description="Get replies to a specific tweet",
                     inputSchema={
@@ -490,9 +550,17 @@ class TwitterMCPServer:
                     return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
                 
                 elif name == "tweet":
-                    result = await self._post_tweet(client, arguments["text"])
-                    return [types.TextContent(type="text", text=f"Tweet posted successfully: {json.dumps(result, indent=2)}")]
+                    reply_to = arguments.get("reply_to_tweet_id")
+                    result = await self._post_tweet(client, arguments["text"], reply_to_tweet_id=reply_to)
+                    action = "Reply posted" if reply_to else "Tweet posted"
+                    return [types.TextContent(type="text", text=f"{action} successfully: {json.dumps(result, indent=2)}")]
                 
+                elif name == "get_user_tweets":
+                    count = arguments.get("count", 20)
+                    include_replies = arguments.get("include_replies", False)
+                    result = await self._get_user_tweets(client, arguments["username"], count, include_replies)
+                    return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
                 elif name == "get_user_info":
                     result = await self._get_user_info(client, arguments["username"])
                     return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
@@ -542,6 +610,10 @@ class TwitterMCPServer:
                     result = await self._delete_dm(client, arguments["message_id"])
                     return [types.TextContent(type="text", text=f"DM deleted successfully: {json.dumps(result, indent=2)}")]
                 
+                elif name == "delete_tweet":
+                    result = await self._delete_tweet(client, arguments["tweet_id"])
+                    return [types.TextContent(type="text", text=f"Tweet deleted successfully: {json.dumps(result, indent=2)}")]
+
                 elif name == "get_tweet_replies":
                     count = arguments.get("count", 20)
                     result = await self._get_tweet_replies(client, arguments["tweet_id"], count)
@@ -609,14 +681,15 @@ class TwitterMCPServer:
             }
         }
 
-    async def _post_tweet(self, client: Client, text: str) -> Dict[str, Any]:
-        """Post a tweet"""
-        tweet = await client.create_tweet(text=text)
+    async def _post_tweet(self, client: Client, text: str, reply_to_tweet_id: Optional[str] = None) -> Dict[str, Any]:
+        """Post a tweet or reply"""
+        tweet = await client.create_tweet(text=text, reply_to=reply_to_tweet_id)
         return {
             "id": tweet.id,
             "text": tweet.text,
             "created_at": str(tweet.created_at),
-            "author": tweet.user.screen_name
+            "author": tweet.user.screen_name,
+            "in_reply_to": reply_to_tweet_id
         }
 
     async def _get_user_info(self, client: Client, username: str) -> Dict[str, Any]:
@@ -669,10 +742,11 @@ class TwitterMCPServer:
             for tweet in tweets
         ]
 
-    async def _get_user_tweets(self, client: Client, username: str, count: int = 20) -> List[Dict[str, Any]]:
+    async def _get_user_tweets(self, client: Client, username: str, count: int = 20, include_replies: bool = False) -> List[Dict[str, Any]]:
         """Get tweets from a specific user"""
         user = await client.get_user_by_screen_name(username)
-        tweets = await client.get_user_tweets(user.id, tweet_type='Tweets', count=count)
+        tweet_type = 'Replies' if include_replies else 'Tweets'
+        tweets = await client.get_user_tweets(user.id, tweet_type=tweet_type, count=count)
         return [
             {
                 "id": tweet.id,
@@ -768,6 +842,14 @@ class TwitterMCPServer:
         return {
             "success": True,
             "message_id": message_id
+        }
+
+    async def _delete_tweet(self, client: Client, tweet_id: str) -> Dict[str, Any]:
+        """Delete a tweet"""
+        await client.delete_tweet(tweet_id)
+        return {
+            "success": True,
+            "tweet_id": tweet_id
         }
 
     async def _get_tweet_replies(self, client: Client, tweet_id: str, count: int = 20) -> List[Dict[str, Any]]:
