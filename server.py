@@ -1498,4 +1498,12 @@ async def main():
     await server.run()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import os
+    from mcp.serve import serve_http
+
+    # Bind to Render's dynamic port environment variable
+    port = int(os.environ.get("PORT", 8000))
+
+    print(f"Starting free X MCP Server on port {port}...")
+    serve_http(server, host="0.0.0.0", port=port)
+
